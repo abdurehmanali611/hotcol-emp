@@ -1,69 +1,118 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { toast, Toaster } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+} from "@/components/ui/input-otp";
+import { employeeLogin } from "@/lib/api/employee";
+import { saveEmployeeSession } from "@/lib/employeeSession";
+
+export default function EmployeeLoginPage() {
+  const router = useRouter();
+  const [tenantTin, setTenantTin] = useState("");
+  const [otp, setOtp] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const session = await employeeLogin(tenantTin.trim(), otp);
+      saveEmployeeSession(session);
+      if (session.employee.mustChangeOtp) {
+        router.replace("/change-otp");
+      } else {
+        router.replace("/home");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Login failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
+    <div className="relative flex min-h-svh flex-col items-center justify-center overflow-hidden bg-[radial-gradient(ellipse_at_top,_#1e3a5f_0%,_#0b1220_55%,_#05080f_100%)] px-4 py-10 text-slate-50">
+      <Toaster richColors position="top-center" />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 opacity-30"
+        style={{
+          backgroundImage:
+            "url(\"data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.06'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E\")",
+        }}
+      />
+      <form
+        onSubmit={submit}
+        className="relative z-10 w-full max-w-md space-y-6 rounded-2xl border border-white/10 bg-white/5 p-8 shadow-2xl backdrop-blur-md"
+      >
+        <div className="space-y-2 text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">
+            HotCol
+          </p>
+          <h1 className="font-serif text-3xl tracking-tight text-white">
+            Employee portal
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="text-sm text-slate-300">
+            Sign in with your property TIN and the portal code from HR.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        <div className="space-y-2">
+          <Label htmlFor="tin" className="text-slate-200">
+            Property TIN
+          </Label>
+          <Input
+            id="tin"
+            value={tenantTin}
+            onChange={(e) => setTenantTin(e.target.value)}
+            placeholder="TIN number"
+            className="border-white/15 bg-black/30 text-white placeholder:text-slate-500"
+            autoComplete="organization"
+            required
+          />
         </div>
-      </main>
+
+        <div className="space-y-2">
+          <Label className="text-slate-200">Portal code</Label>
+          <InputOTP
+            maxLength={6}
+            value={otp}
+            onChange={(v) => setOtp(v.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+            inputMode="text"
+            pattern="[A-Za-z0-9]*"
+            containerClassName="justify-center"
+          >
+            <InputOTPGroup>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <InputOTPSlot
+                  key={i}
+                  index={i}
+                  className="border-white/20 bg-black/40 text-lg text-white"
+                />
+              ))}
+            </InputOTPGroup>
+          </InputOTP>
+          <p className="text-center text-xs text-slate-400">
+            6 characters — letters and digits (e.g. AB1234)
+          </p>
+        </div>
+
+        <Button
+          type="submit"
+          className="w-full bg-sky-500 text-slate-950 hover:bg-sky-400"
+          disabled={busy || otp.length < 6 || !tenantTin.trim()}
+        >
+          {busy ? "Signing in…" : "Sign in"}
+        </Button>
+      </form>
     </div>
   );
 }
