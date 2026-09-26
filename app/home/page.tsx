@@ -148,12 +148,30 @@ export default function EmployeeHomePage() {
           <p className="mt-1 text-sm text-slate-600">
             {me?.jobTitle || "Team member"}
             {me?.department ? ` · ${me.department}` : ""}
-          </p>
-          <p className="mt-4 text-sm text-slate-500">
-            Leave, payslips, and profile ESS panels ship next. Your notifications
-            appear in the bell above.
+            {me?.orgPosition === "leader" ? " · Leader" : ""}
           </p>
         </section>
+        <nav className="grid gap-3 sm:grid-cols-2">
+          {[
+            { href: "/leave", title: "Leave", desc: "Request and track your leave" },
+            {
+              href: "/approvals",
+              title: "My approvals",
+              desc: "Approve team leave when you are a Leader",
+            },
+            { href: "/payslips", title: "Payslips", desc: "View your payslip history" },
+            { href: "/profile", title: "Profile", desc: "Your org details" },
+          ].map((item) => (
+            <a
+              key={item.href}
+              href={item.href}
+              className="rounded-2xl border border-slate-200/80 bg-white/90 p-5 shadow-sm transition hover:border-sky-300"
+            >
+              <p className="font-semibold">{item.title}</p>
+              <p className="mt-1 text-sm text-slate-500">{item.desc}</p>
+            </a>
+          ))}
+        </nav>
       </main>
     </div>
   );

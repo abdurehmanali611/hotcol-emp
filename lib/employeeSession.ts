@@ -9,6 +9,8 @@ export type EmployeePublic = {
   email: string;
   department: string;
   jobTitle: string;
+  orgPosition?: string;
+  teamId?: number | null;
   status: string;
   mustChangeOtp: boolean;
   profileImageUrl: string;
