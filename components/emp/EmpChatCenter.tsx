@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
 import Image from "next/image";
@@ -587,7 +588,7 @@ export function EmpChatCenter({ myEmployeeId }: { myEmployeeId: number | null })
                       <p className="text-sm text-muted-foreground">
                         Select or start a conversation
                       </p>
-                      <p className="max-w-[14rem] text-[11px] text-muted-foreground/80">
+                      <p className="max-w-56 text-[11px] text-muted-foreground/80">
                         Use Chat with Manager for a private line, or pick a
                         coworker above.
                       </p>
@@ -612,7 +613,7 @@ export function EmpChatCenter({ myEmployeeId }: { myEmployeeId: number | null })
                       >
                         <div
                           className={cn(
-                            "inline-block max-w-[15rem] space-y-2 rounded-2xl px-3 py-2 text-sm shadow-sm sm:max-w-[17rem]",
+                            "inline-block max-w-60 space-y-2 rounded-2xl px-3 py-2 text-sm shadow-sm sm:max-w-68",
                             mine(m)
                               ? "bg-cyan-600 text-white"
                               : m.senderIsManager

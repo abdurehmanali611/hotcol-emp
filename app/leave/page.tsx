@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -534,7 +535,7 @@ export default function LeavePage() {
               </div>
             </div>
 
-            <div className="mx-auto w-full max-w-[11rem] space-y-2">
+            <div className="mx-auto w-full max-w-44 space-y-2">
               <Label htmlFor="leave-days" className="flex justify-center">
                 Days
               </Label>

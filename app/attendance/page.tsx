@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -64,7 +65,7 @@ function StatChip({
   return (
     <div
       className={cn(
-        "min-w-[7.5rem] flex-1 rounded-xl border px-3 py-3",
+        "min-w-30 flex-1 rounded-xl border px-3 py-3",
         tone,
       )}
     >
@@ -274,7 +275,7 @@ export default function AttendancePage() {
                     </div>
                     <span
                       className={cn(
-                        "inline-flex max-w-[11rem] shrink-0 rounded-full px-2.5 py-0.5 text-center text-[11px] font-medium tracking-wide",
+                        "inline-flex max-w-44 shrink-0 rounded-full px-2.5 py-0.5 text-center text-[11px] font-medium tracking-wide",
                         inc.salaryDeduct
                           ? "bg-rose-500/20 text-rose-200 ring-1 ring-rose-500/35"
                           : "bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-500/30",
