@@ -5,7 +5,7 @@ import {
 } from "@/lib/employeeSession";
 
 const API_URL =
-  process.env.NEXT_PUBLIC_EMP_API_URL || "http://localhost:4005/graphql";
+  process.env.NEXT_PUBLIC_EMP_API_URL || "https://hotcol-emp-backend.vercel.app/graphql";
 
 const ME_FIELDS = `
   id HotelName fullName phone email department jobTitle orgPosition teamId status

@@ -1,7 +1,7 @@
 import { readEmployeeToken } from "@/lib/employeeSession";
 
 const API_URL =
-  process.env.NEXT_PUBLIC_EMP_API_URL || "http://localhost:4005/graphql";
+  process.env.NEXT_PUBLIC_EMP_API_URL || "https://hotcol-emp-backend.vercel.app/graphql";
 
 const THREAD_FIELDS = `
   id HotelName kind title createdByEmployeeId createdByManagerUserId
