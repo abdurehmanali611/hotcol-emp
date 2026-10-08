@@ -1,9 +1,9 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions */
+"use client";
+
 import * as React from "react";
+import { CheckIcon, ChevronsUpDown } from "lucide-react";
 import * as RPNInput from "react-phone-number-input";
 import flags from "react-phone-number-input/flags";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Tick02Icon, UnfoldMoreIcon } from "@hugeicons/core-free-icons";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -43,16 +43,7 @@ const PhoneInput: React.ForwardRefExoticComponent<PhoneInputProps> =
           inputComponent={InputComponent}
           smartCaret={false}
           value={value || undefined}
-          /**
-           * Handles the onChange event.
-           *
-           * react-phone-number-input might trigger the onChange event as undefined
-           * when a valid phone number is not entered. To prevent this,
-           * the value is coerced to an empty string.
-           *
-           * @param {E164Number | undefined} value - The entered value
-           */
-          onChange={(value) => onChange?.(value || ("" as RPNInput.Value))}
+          onChange={(next) => onChange?.(next || ("" as RPNInput.Value))}
           {...props}
         />
       );
@@ -97,7 +88,7 @@ const CountrySelect = ({
       modal
       onOpenChange={(open) => {
         setIsOpen(open);
-        open && setSearchValue("");
+        if (open) setSearchValue("");
       }}
     >
       <PopoverTrigger asChild>
@@ -111,9 +102,7 @@ const CountrySelect = ({
             country={selectedCountry}
             countryName={selectedCountry}
           />
-          <HugeiconsIcon
-            icon={UnfoldMoreIcon}
-            strokeWidth={2}
+          <ChevronsUpDown
             className={cn(
               "-mr-2 size-4 opacity-50",
               disabled ? "hidden" : "opacity-100",
@@ -187,10 +176,10 @@ const CountrySelectOption = ({
     <CommandItem className="gap-2" onSelect={handleSelect}>
       <FlagComponent country={country} countryName={countryName} />
       <span className="flex-1 text-sm">{countryName}</span>
-      <span className="text-sm text-foreground/50">{`+${RPNInput.getCountryCallingCode(country)}`}</span>
-      <HugeiconsIcon
-        icon={Tick02Icon}
-        strokeWidth={2}
+      <span className="text-sm text-foreground/50">
+        {`+${RPNInput.getCountryCallingCode(country)}`}
+      </span>
+      <CheckIcon
         className={`ml-auto size-4 ${country === selectedCountry ? "opacity-100" : "opacity-0"}`}
       />
     </CommandItem>

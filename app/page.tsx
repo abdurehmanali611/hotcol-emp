@@ -1,10 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { toast, Toaster } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
+import { Loader2 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import {
   InputOTP,
@@ -12,107 +11,149 @@ import {
   InputOTPSlot,
 } from "@/components/ui/input-otp";
 import { employeeLogin } from "@/lib/api/employee";
-import { saveEmployeeSession } from "@/lib/employeeSession";
+import {
+  clearEmployeeSession,
+  readEmployeeToken,
+  saveEmployeeSession,
+} from "@/lib/employeeSession";
 
 export default function EmployeeLoginPage() {
   const router = useRouter();
-  const [tenantTin, setTenantTin] = useState("");
   const [otp, setOtp] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [checking, setChecking] = useState(true);
+  const submittedFor = useRef<string | null>(null);
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      const session = await employeeLogin(tenantTin.trim(), otp);
-      saveEmployeeSession(session);
-      if (session.employee.mustChangeOtp) {
-        router.replace("/change-otp");
-      } else {
-        router.replace("/home");
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Login failed");
-    } finally {
-      setBusy(false);
+  useEffect(() => {
+    if (readEmployeeToken()) {
+      router.replace("/home");
+      return;
     }
-  };
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- post-hydration auth gate
+    setChecking(false);
+  }, [router]);
+
+  useEffect(() => {
+    if (checking || submitting || otp.length !== 6) return;
+    if (submittedFor.current === otp) return;
+    submittedFor.current = otp;
+
+    async function login() {
+      setSubmitting(true);
+      try {
+        const session = await employeeLogin(otp);
+        saveEmployeeSession(session);
+        toast.success(
+          session.employee.mustChangeOtp
+            ? "Signed in — set a new portal code"
+            : `Welcome, ${session.employee.fullName.split(" ")[0] || "there"}`,
+        );
+        router.replace(
+          session.employee.mustChangeOtp ? "/change-otp" : "/home",
+        );
+      } catch (err) {
+        clearEmployeeSession();
+        submittedFor.current = null;
+        setOtp("");
+        toast.error(err instanceof Error ? err.message : "Could not sign in");
+      } finally {
+        setSubmitting(false);
+      }
+    }
+
+    void login();
+  }, [otp, checking, submitting, router]);
+
+  if (checking) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-[#0a1220]">
+        <Loader2 className="size-6 animate-spin text-cyan-400" />
+      </div>
+    );
+  }
 
   return (
-    <div className="relative flex min-h-svh flex-col items-center justify-center overflow-hidden bg-[radial-gradient(ellipse_at_top,_#1e3a5f_0%,_#0b1220_55%,_#05080f_100%)] px-4 py-10 text-slate-50">
-      <Toaster richColors position="top-center" />
+    <div className="relative flex min-h-dvh flex-col overflow-hidden bg-[#0a1220]">
       <div
+        className="pointer-events-none absolute inset-0 bg-linear-to-br from-[#0a1220] via-[#0c1a28] to-[#0a221c]"
         aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-30"
-        style={{
-          backgroundImage:
-            "url(\"data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.06'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E\")",
-        }}
       />
-      <form
-        onSubmit={submit}
-        className="relative z-10 w-full max-w-md space-y-6 rounded-2xl border border-white/10 bg-white/5 p-8 shadow-2xl backdrop-blur-md"
-      >
-        <div className="space-y-2 text-center">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300/90">
-            HotCol
+      <div
+        className="pointer-events-none absolute -left-24 top-10 h-72 w-72 rounded-full bg-cyan-500/25 blur-3xl"
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute -right-16 bottom-0 h-64 w-64 rounded-full bg-emerald-500/20 blur-3xl"
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute left-1/2 top-1/3 h-48 w-48 -translate-x-1/2 rounded-full bg-amber-500/10 blur-3xl"
+        aria-hidden
+      />
+
+      <div className="relative z-10 mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-4 py-10">
+        <div className="mb-8 animate-in fade-in slide-in-from-bottom-2 duration-500 text-center">
+          <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-xl bg-linear-to-br from-cyan-400 to-emerald-400 text-slate-950 shadow-lg shadow-cyan-900/40 ring-1 ring-cyan-300/40">
+            <span className="text-sm font-bold tracking-tight">HC</span>
+          </div>
+          <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-cyan-300 md:text-xs">
+            HotCol Employee
           </p>
-          <h1 className="font-serif text-3xl tracking-tight text-white">
-            Employee portal
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+            Enter your portal code
           </h1>
-          <p className="text-sm text-slate-300">
-            Sign in with your property TIN and the portal code from HR.
+          <p className="mt-2 text-sm text-pretty text-muted-foreground">
+            Use the 6-character code from HR. That is all you need — letters and
+            digits, unique to you.
           </p>
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="tin" className="text-slate-200">
-            Property TIN
-          </Label>
-          <Input
-            id="tin"
-            value={tenantTin}
-            onChange={(e) => setTenantTin(e.target.value)}
-            placeholder="TIN number"
-            className="border-white/15 bg-black/30 text-white placeholder:text-slate-500"
-            autoComplete="organization"
-            required
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label className="text-slate-200">Portal code</Label>
-          <InputOTP
-            maxLength={6}
-            value={otp}
-            onChange={(v) => setOtp(v.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
-            inputMode="text"
-            pattern="[A-Za-z0-9]*"
-            containerClassName="justify-center"
-          >
-            <InputOTPGroup>
-              {Array.from({ length: 6 }).map((_, i) => (
-                <InputOTPSlot
-                  key={i}
-                  index={i}
-                  className="border-white/20 bg-black/40 text-lg text-white"
-                />
-              ))}
-            </InputOTPGroup>
-          </InputOTP>
-          <p className="text-center text-xs text-slate-400">
-            6 characters — letters and digits (e.g. AB1234)
-          </p>
-        </div>
-
-        <Button
-          type="submit"
-          className="w-full bg-sky-500 text-slate-950 hover:bg-sky-400"
-          disabled={busy || otp.length < 6 || !tenantTin.trim()}
+        <div
+          className="relative space-y-5 overflow-hidden rounded-2xl border border-cyan-500/25 bg-card/90 p-5 shadow-xl shadow-cyan-950/40 ring-1 ring-cyan-400/15 backdrop-blur-sm animate-in fade-in slide-in-from-bottom-2 duration-500 fill-mode-both sm:p-6"
+          style={{ animationDelay: "60ms" }}
         >
-          {busy ? "Signing in…" : "Sign in"}
-        </Button>
-      </form>
+          <div className="absolute inset-x-0 top-0 h-1 bg-linear-to-r from-cyan-400 via-sky-400 to-emerald-400" />
+
+          <div className="space-y-3">
+            <Label className="flex justify-center">Portal code</Label>
+            <div className="flex justify-center overflow-x-auto px-1">
+              <InputOTP
+                maxLength={6}
+                value={otp}
+                onChange={(v) =>
+                  setOtp(v.toUpperCase().replace(/[^A-Z0-9]/g, ""))
+                }
+                autoFocus
+                disabled={submitting}
+                inputMode="text"
+                pattern="[A-Za-z0-9]*"
+                containerClassName="gap-1.5 sm:gap-2"
+              >
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <InputOTPGroup key={i}>
+                    <InputOTPSlot
+                      index={i}
+                      className="size-9 rounded-lg border border-cyan-500/25 bg-cyan-500/5 text-base uppercase sm:size-10"
+                    />
+                  </InputOTPGroup>
+                ))}
+              </InputOTP>
+            </div>
+          </div>
+
+          {submitting ? (
+            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin text-cyan-400" />
+              Signing in…
+            </div>
+          ) : null}
+        </div>
+
+        <p className="mt-6 text-center text-xs text-muted-foreground">
+          Ask HR if you need a new code. After first login you may be asked to
+          change it.
+        </p>
+      </div>
     </div>
   );
 }

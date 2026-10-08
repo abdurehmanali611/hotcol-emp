@@ -1,23 +1,34 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { toast, Toaster } from "sonner";
+import { Check, ClipboardCheck, Loader2, X } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { EmpAppShell, EmpCard } from "@/components/emp/EmpAppShell";
+import {
+  EmpEmptyState,
+  EmpLoadingBlock,
+  EmpSectionLabel,
+  formatEmpDateRange,
+} from "@/components/emp/EmpChrome";
 import {
   decideLeaveAsAssignee,
+  fetchEmployeeMe,
   fetchPendingApprovalsForMe,
   type EmpLeaveRequest,
 } from "@/lib/api/employee";
 import {
   clearEmployeeSession,
   readEmployeeToken,
+  updateStoredEmployee,
 } from "@/lib/employeeSession";
 
 export default function ApprovalsPage() {
   const router = useRouter();
   const [rows, setRows] = useState<EmpLeaveRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     if (!readEmployeeToken()) {
@@ -25,10 +36,18 @@ export default function ApprovalsPage() {
       return;
     }
     try {
+      const me = await fetchEmployeeMe();
+      updateStoredEmployee(me);
+      if (me.orgPosition !== "leader") {
+        router.replace("/home");
+        return;
+      }
       setRows(await fetchPendingApprovalsForMe());
     } catch {
       clearEmployeeSession();
       router.replace("/");
+    } finally {
+      setLoading(false);
     }
   }, [router]);
 
@@ -36,70 +55,126 @@ export default function ApprovalsPage() {
     void load();
   }, [load]);
 
+  const decide = async (id: number, approve: boolean) => {
+    setBusyId(id);
+    try {
+      await decideLeaveAsAssignee(id, approve);
+      toast.success(approve ? "Leave approved" : "Leave rejected");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <EmpAppShell
+        title="My approvals"
+        subtitle="Leave waiting on you as Leader"
+        mainClassName="max-w-3xl"
+      >
+        <EmpLoadingBlock label="Loading approvals…" />
+      </EmpAppShell>
+    );
+  }
+
   return (
-    <div className="min-h-svh bg-[#eef2f6] text-slate-900">
-      <Toaster richColors />
-      <header className="flex h-14 items-center gap-3 border-b bg-white/90 px-4">
-        <Link href="/home" className="text-sm text-sky-700">
-          ← Home
-        </Link>
-        <h1 className="font-semibold">My approvals</h1>
-      </header>
-      <main className="mx-auto max-w-2xl space-y-3 p-4 md:p-6">
+    <EmpAppShell
+      title="My approvals"
+      subtitle="Leave waiting on you as Leader"
+      mainClassName="max-w-3xl"
+    >
+      <EmpCard
+        accent="rose"
+        className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-500"
+      >
+        <EmpSectionLabel
+          icon={ClipboardCheck}
+          title="Pending leave"
+          tone="rose"
+          hint={
+            rows.length
+              ? `${rows.length} request${rows.length === 1 ? "" : "s"} need your decision`
+              : "When teammates submit leave that routes to you, they appear here."
+          }
+        />
+
         {rows.length === 0 ? (
-          <p className="rounded-xl border bg-white p-6 text-center text-sm text-muted-foreground">
-            No pending items for you as a Leader.
-          </p>
+          <EmpEmptyState
+            title="You're all caught up"
+            hint="No leave is waiting on you as Leader right now."
+            tone="rose"
+          />
         ) : (
-          rows.map((r) => (
-            <div
-              key={r.id}
-              className="flex flex-col gap-3 rounded-xl border bg-white p-4 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <div>
-                <p className="font-medium">{r.employeeName}</p>
-                <p className="text-sm text-muted-foreground">
-                  {r.leaveType} · {r.fromYmd} → {r.toYmd}
-                </p>
-                {r.reason ? (
-                  <p className="mt-1 text-xs text-muted-foreground">{r.reason}</p>
-                ) : null}
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  onClick={async () => {
-                    try {
-                      await decideLeaveAsAssignee(r.id, true);
-                      toast.success("Approved");
-                      await load();
-                    } catch (e) {
-                      toast.error(e instanceof Error ? e.message : "Failed");
-                    }
-                  }}
+          <ul className="space-y-3">
+            {rows.map((r, i) => {
+              const busy = busyId === r.id;
+              return (
+                <li
+                  key={r.id}
+                  className="rounded-xl border border-rose-500/20 bg-rose-500/5 p-4 transition hover:border-rose-400/35 hover:bg-rose-500/10 animate-in fade-in slide-in-from-bottom-1 duration-300 fill-mode-both"
+                  style={{ animationDelay: `${40 + i * 35}ms` }}
                 >
-                  Approve
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={async () => {
-                    try {
-                      await decideLeaveAsAssignee(r.id, false);
-                      toast.message("Rejected");
-                      await load();
-                    } catch (e) {
-                      toast.error(e instanceof Error ? e.message : "Failed");
-                    }
-                  }}
-                >
-                  Reject
-                </Button>
-              </div>
-            </div>
-          ))
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0 space-y-1.5">
+                      <p className="font-semibold tracking-tight">
+                        {r.employeeName || "Teammate"}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        <span className="text-rose-100/90">{r.leaveType}</span>
+                        {" · "}
+                        {formatEmpDateRange(r.fromYmd, r.toYmd)}
+                        {r.days
+                          ? ` · ${r.days} day${r.days === 1 ? "" : "s"}`
+                          : ""}
+                      </p>
+                      <p className="text-xs text-amber-200/90">
+                        Approval step {r.currentStepIndex + 1}
+                      </p>
+                      {r.reason ? (
+                        <p className="line-clamp-3 text-xs text-muted-foreground">
+                          {r.reason}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                      <Button
+                        size="sm"
+                        className="h-10 min-w-24 rounded-xl bg-linear-to-r from-emerald-500 to-teal-500 font-semibold text-slate-950 hover:from-emerald-400 hover:to-teal-400"
+                        disabled={busy}
+                        onClick={() => void decide(r.id, true)}
+                      >
+                        {busy ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5">
+                            <Check className="size-4" />
+                            Approve
+                          </span>
+                        )}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-10 min-w-24 rounded-xl border-rose-400/40 bg-rose-500/10 text-rose-100 hover:bg-rose-500/20"
+                        disabled={busy}
+                        onClick={() => void decide(r.id, false)}
+                      >
+                        <span className="inline-flex items-center gap-1.5">
+                          <X className="size-4" />
+                          Reject
+                        </span>
+                      </Button>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         )}
-      </main>
-    </div>
+      </EmpCard>
+    </EmpAppShell>
   );
 }

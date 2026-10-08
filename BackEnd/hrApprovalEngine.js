@@ -289,8 +289,20 @@ export async function decideLeaveOnEngine(
     employee,
   });
   const role = String(actor?.role || "").trim();
-  const isDeskBoss = role === "Manager" || role === "Admin";
-  if (!actorCanDecide(assignees, actor) && !isDeskBoss) {
+  const stepKind = String(step.kind || "").trim();
+  /** Credential roles may act on their matching desk step. */
+  const roleMatchesStep =
+    (role === "HR" && stepKind === "hr") ||
+    (role === "Manager" && stepKind === "manager") ||
+    (role === "Admin" &&
+      (stepKind === "admin" || stepKind === "manager" || stepKind === "hr"));
+  /** Manager/Admin may override any step (still advances the chain — does not skip remaining steps). */
+  const isDeskOverride = role === "Manager" || role === "Admin";
+  if (
+    !actorCanDecide(assignees, actor) &&
+    !roleMatchesStep &&
+    !isDeskOverride
+  ) {
     throw new Error("Not an assignee for this approval step");
   }
 

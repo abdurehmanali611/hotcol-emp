@@ -36,18 +36,15 @@ async function gql<T>(
   return json.data as T;
 }
 
-export async function employeeLogin(
-  tenantTin: string,
-  otp: string,
-): Promise<EmployeeSession> {
+export async function employeeLogin(otp: string): Promise<EmployeeSession> {
   const data = await gql<{ employeeLogin: EmployeeSession }>(
-    `mutation ($tenantTin: String!, $otp: String!) {
-      employeeLogin(tenantTin: $tenantTin, otp: $otp) {
+    `mutation ($otp: String!) {
+      employeeLogin(otp: $otp) {
         token
         employee { ${ME_FIELDS} }
       }
     }`,
-    { tenantTin, otp },
+    { otp },
     { auth: false },
   );
   return data.employeeLogin;
@@ -71,6 +68,28 @@ export async function changeOwnOtp(
     { currentOtp, newOtp },
   );
   return data.changeOwnOtp;
+}
+
+export async function updateOwnProfile(input: {
+  profileImageUrl?: string;
+  phone?: string;
+  email?: string;
+}): Promise<EmployeePublic> {
+  const data = await gql<{ updateOwnProfile: EmployeePublic }>(
+    `mutation ($profileImageUrl: String, $phone: String, $email: String) {
+      updateOwnProfile(
+        profileImageUrl: $profileImageUrl
+        phone: $phone
+        email: $email
+      ) { ${ME_FIELDS} }
+    }`,
+    {
+      profileImageUrl: input.profileImageUrl ?? null,
+      phone: input.phone ?? null,
+      email: input.email ?? null,
+    },
+  );
+  return data.updateOwnProfile;
 }
 
 export type EmpNotification = {
@@ -138,6 +157,26 @@ export async function fetchMyLeaveTypes() {
     `query { myLeaveTypes { code label paid } }`,
   );
   return data.myLeaveTypes || [];
+}
+
+export type EmpLeaveBalance = {
+  leaveType: string;
+  label: string;
+  paid: boolean;
+  balanceDays: number;
+  pendingDays: number;
+  availableDays: number;
+};
+
+export async function fetchMyLeaveBalances() {
+  const data = await gql<{ myLeaveBalances: EmpLeaveBalance[] }>(
+    `query {
+      myLeaveBalances {
+        leaveType label paid balanceDays pendingDays availableDays
+      }
+    }`,
+  );
+  return data.myLeaveBalances || [];
 }
 
 export async function createOwnLeaveRequest(input: {
@@ -212,4 +251,70 @@ export async function fetchMyPayslips() {
     }`,
   );
   return data.myPayslips || [];
+}
+
+export type EmpAttendance = {
+  id: number;
+  workDate: string;
+  clockInAt: string | null;
+  clockOutAt: string | null;
+  status: string;
+  notes: string;
+};
+
+export type EmpIncident = {
+  id: number;
+  kind: string;
+  title: string;
+  detail: string;
+  occurredYmd: string;
+  salaryDeduct: boolean;
+  percentOfSalary: number;
+  amountETB: number;
+  createdAt: string;
+};
+
+export type EmpShift = {
+  id: number;
+  workDate: string;
+  department: string;
+  startTime: string;
+  endTime: string;
+  notes: string;
+};
+
+export async function fetchMyAttendance(limit = 60) {
+  const data = await gql<{ myAttendance: EmpAttendance[] }>(
+    `query ($limit: Int) {
+      myAttendance(limit: $limit) {
+        id workDate clockInAt clockOutAt status notes
+      }
+    }`,
+    { limit },
+  );
+  return data.myAttendance || [];
+}
+
+export async function fetchMyIncidents(limit = 40) {
+  const data = await gql<{ myIncidents: EmpIncident[] }>(
+    `query ($limit: Int) {
+      myIncidents(limit: $limit) {
+        id kind title detail occurredYmd salaryDeduct percentOfSalary amountETB createdAt
+      }
+    }`,
+    { limit },
+  );
+  return data.myIncidents || [];
+}
+
+export async function fetchMyShifts(limit = 30) {
+  const data = await gql<{ myShifts: EmpShift[] }>(
+    `query ($limit: Int) {
+      myShifts(limit: $limit) {
+        id workDate department startTime endTime notes
+      }
+    }`,
+    { limit },
+  );
+  return data.myShifts || [];
 }

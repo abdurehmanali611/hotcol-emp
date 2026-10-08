@@ -6,6 +6,7 @@ import {
 import {
   clearOtpPreviewFields,
   hashPortalOtp,
+  isPortalOtpTaken,
   isValidPortalOtpFormat,
   normalizePortalOtp,
   verifyPortalOtp,
@@ -17,6 +18,7 @@ import {
   recordEscalations,
   resolveAssignees,
 } from "./hrApprovalEngine.js";
+import { notifyEmployeeLeaveDecision } from "./hrNotifications.js";
 
 function publicEmployee(row) {
   if (!row) return null;
@@ -49,27 +51,60 @@ function assertYmd(value, label) {
   return s;
 }
 
-async function resolveTenantHotelNames(prisma, tenantTin) {
-  const tin = String(tenantTin || "").trim();
-  if (!tin) return [];
-  const keys = new Set([tin]);
-  const users = await prisma.user.findMany({
-    where: { tinNumber: tin },
-    select: { HotelName: true, tinNumber: true },
-    take: 40,
-  });
-  for (const u of users) {
-    if (u.tinNumber) keys.add(String(u.tinNumber).trim());
-    if (u.HotelName) keys.add(String(u.HotelName).trim());
+function todayYmd() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/** Block new leave while the employee is currently on approved leave. */
+async function assertEmployeeCanRequestLeave(db, employee) {
+  if (!employee) throw new Error("Employee not found");
+  if (String(employee.status || "") === "terminated") {
+    throw new Error("Terminated employees cannot request leave");
   }
-  const account = await prisma.tenant_account.findUnique({
-    where: { tinNumber: tin },
-    select: { hotelDisplayName: true },
-  });
-  if (account?.hotelDisplayName) {
-    keys.add(String(account.hotelDisplayName).trim());
+  const today = todayYmd();
+  if (String(employee.status || "") === "on_leave") {
+    throw new Error(
+      "You are currently on leave and cannot request another leave",
+    );
   }
-  return [...keys].filter(Boolean);
+  const activeLeave = await db.hr_leave_request.findFirst({
+    where: {
+      employeeId: employee.id,
+      status: "approved",
+      fromYmd: { lte: today },
+      toYmd: { gte: today },
+    },
+    select: { id: true, fromYmd: true, toYmd: true },
+  });
+  if (activeLeave) {
+    throw new Error(
+      `You are on leave (${activeLeave.fromYmd} → ${activeLeave.toYmd}) and cannot request another leave`,
+    );
+  }
+}
+
+async function resolveTinForHotel(prisma, hotelName) {
+  const key = String(hotelName || "").trim();
+  if (!key) return "";
+  const byTin = await prisma.tenant_account.findUnique({
+    where: { tinNumber: key },
+    select: { tinNumber: true },
+  });
+  if (byTin?.tinNumber) return String(byTin.tinNumber).trim();
+  const byName = await prisma.tenant_account.findFirst({
+    where: { hotelDisplayName: key },
+    select: { tinNumber: true },
+  });
+  if (byName?.tinNumber) return String(byName.tinNumber).trim();
+  const user = await prisma.user.findFirst({
+    where: { HotelName: key },
+    select: { tinNumber: true },
+  });
+  return user?.tinNumber ? String(user.tinNumber).trim() : key;
 }
 
 async function loadMe(prisma, employeeId) {
@@ -145,6 +180,45 @@ export const employeeTypeDefs = `
     label: String!
     paid: Boolean!
   }
+
+  type EmpLeaveBalance {
+    leaveType: String!
+    label: String!
+    paid: Boolean!
+    balanceDays: Float!
+    pendingDays: Float!
+    availableDays: Float!
+  }
+
+  type EmpAttendance {
+    id: Int!
+    workDate: String!
+    clockInAt: DateTime
+    clockOutAt: DateTime
+    status: String!
+    notes: String!
+  }
+
+  type EmpIncident {
+    id: Int!
+    kind: String!
+    title: String!
+    detail: String!
+    occurredYmd: String!
+    salaryDeduct: Boolean!
+    percentOfSalary: Float!
+    amountETB: Float!
+    createdAt: DateTime!
+  }
+
+  type EmpShift {
+    id: Int!
+    workDate: String!
+    department: String!
+    startTime: String!
+    endTime: String!
+    notes: String!
+  }
 `;
 
 export const employeeQueryFields = `
@@ -152,15 +226,19 @@ export const employeeQueryFields = `
   employeeNotifications(unreadOnly: Boolean): [HrNotificationEmp!]!
   myLeaveRequests: [EmpLeaveRequest!]!
   myLeaveTypes: [EmpLeaveType!]!
+  myLeaveBalances: [EmpLeaveBalance!]!
   pendingApprovalsForMe: [EmpLeaveRequest!]!
   myPayslips: [EmpPayslip!]!
+  myAttendance(limit: Int): [EmpAttendance!]!
+  myIncidents(limit: Int): [EmpIncident!]!
+  myShifts(limit: Int): [EmpShift!]!
 `;
 
 export const employeeMutationFields = `
-  employeeLogin(tenantTin: String!, otp: String!): EmployeeSession!
+  employeeLogin(otp: String!): EmployeeSession!
   changeOwnOtp(currentOtp: String!, newOtp: String!): Boolean!
   markOwnNotificationRead(id: Int!): HrNotificationEmp!
-  updateOwnProfile(profileImageUrl: String): HrEmployeePublic!
+  updateOwnProfile(profileImageUrl: String, phone: String, email: String): HrEmployeePublic!
   createOwnLeaveRequest(
     leaveType: String!
     fromYmd: String!
@@ -215,6 +293,64 @@ export const employeeResolvers = {
       });
     },
 
+    myLeaveBalances: async (_, __, context) => {
+      const me = await loadMe(context.prisma, assertEmployee(context));
+      const [types, balances, pending] = await Promise.all([
+        context.prisma.hr_leave_type.findMany({
+          where: { HotelName: me.HotelName, active: true },
+          orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
+        }),
+        context.prisma.hr_leave_balance.findMany({
+          where: { employeeId: me.id },
+        }),
+        context.prisma.hr_leave_request.findMany({
+          where: { employeeId: me.id, status: "pending" },
+          select: { leaveType: true, days: true },
+        }),
+      ]);
+      const balanceByType = new Map(
+        balances.map((b) => [String(b.leaveType), Number(b.balanceDays) || 0]),
+      );
+      const pendingByType = new Map();
+      for (const row of pending) {
+        const key = String(row.leaveType || "");
+        pendingByType.set(
+          key,
+          (pendingByType.get(key) || 0) + (Number(row.days) || 0),
+        );
+      }
+      const codes = new Set([
+        ...types.map((t) => String(t.code)),
+        ...balanceByType.keys(),
+      ]);
+      const typeMeta = new Map(
+        types.map((t) => [
+          String(t.code),
+          { label: t.label || t.code, paid: Boolean(t.paid) },
+        ]),
+      );
+      return [...codes]
+        .filter(Boolean)
+        .sort((a, b) => {
+          const la = typeMeta.get(a)?.label || a;
+          const lb = typeMeta.get(b)?.label || b;
+          return la.localeCompare(lb);
+        })
+        .map((code) => {
+          const meta = typeMeta.get(code) || { label: code, paid: true };
+          const balanceDays = round2(balanceByType.get(code) || 0);
+          const pendingDays = round2(pendingByType.get(code) || 0);
+          return {
+            leaveType: code,
+            label: meta.label,
+            paid: meta.paid,
+            balanceDays,
+            pendingDays,
+            availableDays: round2(Math.max(0, balanceDays - pendingDays)),
+          };
+        });
+    },
+
     myLeaveRequests: async (_, __, context) => {
       const employeeId = assertEmployee(context);
       const rows = await context.prisma.hr_leave_request.findMany({
@@ -264,59 +400,107 @@ export const employeeResolvers = {
         orderBy: { createdAt: "desc" },
         take: 50,
       });
-      return rows.map((r) => ({
-        id: r.id,
-        payslipNumber: r.payslipNumber || "",
-        employeeName: r.employeeName || "",
-        netPayETB: r.netPayETB || 0,
-        grossSalaryETB: r.grossSalaryETB || 0,
-        paymentStatus: r.paymentStatus || "",
-        periodKey: r.period?.periodKey || "",
-        monthName: r.period?.monthName || "",
-        fromYmd: r.period?.fromYmd || "",
-        toYmd: r.period?.toYmd || "",
-        createdAt: r.createdAt,
-      }));
+      return rows
+        .filter((r) => {
+          const st = String(r.period?.status || "");
+          // Hide stubs / rejected generate runs (no employee-visible slip yet)
+          if (!r.period || st === "pending_generate") return false;
+          return true;
+        })
+        .map((r) => {
+          const raw = String(r.paymentStatus || "unpaid");
+          // Emp badges: Unpaid until HR mark + Finance confirm; Marked paid after both
+          let paymentStatus = "unpaid";
+          if (raw === "approved") {
+            paymentStatus = "marked_paid";
+          } else if (raw === "marked_paid" && r.managerApprovedAt) {
+            paymentStatus = "marked_paid";
+          } else if (raw === "marked_paid" && !r.managerApprovedAt) {
+            // Legacy HR-only mark — still unpaid until Finance confirms
+            paymentStatus = "unpaid";
+          } else if (raw === "awaiting_finance") {
+            paymentStatus = "unpaid";
+          } else if (raw === "unpaid") {
+            paymentStatus = "unpaid";
+          } else {
+            paymentStatus = "unpaid";
+          }
+          return {
+            id: r.id,
+            payslipNumber: r.payslipNumber || "",
+            employeeName: r.employeeName || "",
+            netPayETB: r.netPayETB || 0,
+            grossSalaryETB: r.grossSalaryETB || 0,
+            paymentStatus,
+            periodKey: r.period?.periodKey || "",
+            monthName: r.period?.monthName || "",
+            fromYmd: r.period?.fromYmd || "",
+            toYmd: r.period?.toYmd || "",
+            createdAt: r.createdAt,
+          };
+        });
+    },
+
+    myAttendance: async (_, { limit }, context) => {
+      const employeeId = assertEmployee(context);
+      const take = Math.min(Math.max(Number(limit) || 60, 1), 180);
+      return context.prisma.hr_attendance.findMany({
+        where: { employeeId },
+        orderBy: { workDate: "desc" },
+        take,
+      });
+    },
+
+    myIncidents: async (_, { limit }, context) => {
+      const employeeId = assertEmployee(context);
+      const take = Math.min(Math.max(Number(limit) || 40, 1), 100);
+      return context.prisma.hr_incident.findMany({
+        where: { employeeId },
+        orderBy: [{ occurredYmd: "desc" }, { createdAt: "desc" }],
+        take,
+      });
+    },
+
+    myShifts: async (_, { limit }, context) => {
+      const employeeId = assertEmployee(context);
+      const take = Math.min(Math.max(Number(limit) || 30, 1), 90);
+      return context.prisma.hr_shift.findMany({
+        where: { employeeId },
+        orderBy: { workDate: "desc" },
+        take,
+      });
     },
   },
 
   Mutation: {
-    employeeLogin: async (_, { tenantTin, otp }, context) => {
+    employeeLogin: async (_, { otp }, context) => {
       const attempt = consumeEmployeeLoginAttempt(
-        `${context.clientIp || "ip"}:${String(tenantTin || "").trim()}`,
+        `${context.clientIp || "ip"}:otp`,
       );
       if (!attempt.ok) {
         throw new Error(
           `Too many login attempts — try again in ${attempt.retryAfterSec}s`,
         );
       }
-      const tin = String(tenantTin || "").trim();
       const normalized = normalizePortalOtp(otp);
-      if (!tin) throw new Error("Property TIN is required");
       if (!isValidPortalOtpFormat(normalized)) {
         throw new Error("Enter your 6-character portal code (letters and digits)");
       }
 
-      const hotelNames = await resolveTenantHotelNames(context.prisma, tin);
-      if (!hotelNames.length) throw new Error("Unknown property TIN");
-
-      const candidates = await context.prisma.hr_employee.findMany({
+      // Globally unique among active portal employees (like lodging guestOtp).
+      const matched = await context.prisma.hr_employee.findFirst({
         where: {
-          HotelName: { in: hotelNames },
+          portalOtpLookup: normalized,
           status: { not: "terminated" },
           portalOtpHash: { not: "" },
         },
-        take: 200,
       });
-
-      let matched = null;
-      for (const row of candidates) {
-        if (await verifyPortalOtp(normalized, row.portalOtpHash)) {
-          matched = row;
-          break;
-        }
+      if (
+        !matched ||
+        !(await verifyPortalOtp(normalized, matched.portalOtpHash))
+      ) {
+        throw new Error("Invalid portal code");
       }
-      if (!matched) throw new Error("Invalid portal code for this property");
 
       const isFirstLogin = !matched.portalFirstLoginAt;
       const data = {
@@ -335,10 +519,14 @@ export const employeeResolvers = {
             })
           : matched;
 
+      const tinNumber = await resolveTinForHotel(
+        context.prisma,
+        updated.HotelName,
+      );
       const token = signEmployeeToken({
         employeeId: updated.id,
         HotelName: updated.HotelName,
-        tinNumber: tin,
+        tinNumber,
         fullName: updated.fullName,
       });
       return { token, employee: publicEmployee(updated) };
@@ -358,11 +546,19 @@ export const employeeResolvers = {
       if (cur === next) {
         throw new Error("Choose a different portal code");
       }
+      if (
+        await isPortalOtpTaken(context.prisma, next, {
+          excludeEmployeeId: employeeId,
+        })
+      ) {
+        throw new Error("That portal code is already in use — choose another");
+      }
       const portalOtpHash = await hashPortalOtp(next);
       await context.prisma.hr_employee.update({
         where: { id: employeeId },
         data: {
           portalOtpHash,
+          portalOtpLookup: next,
           mustChangeOtp: false,
           ...clearOtpPreviewFields(),
         },
@@ -383,11 +579,25 @@ export const employeeResolvers = {
       });
     },
 
-    updateOwnProfile: async (_, { profileImageUrl }, context) => {
+    updateOwnProfile: async (_, { profileImageUrl, phone, email }, context) => {
       const employeeId = assertEmployee(context);
       const data = {};
       if (profileImageUrl != null) {
         data.profileImageUrl = String(profileImageUrl).trim().slice(0, 500);
+      }
+      if (phone != null) {
+        data.phone = String(phone).trim().slice(0, 40);
+      }
+      if (email != null) {
+        const next = String(email).trim().slice(0, 120);
+        if (next && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(next)) {
+          throw new Error("Enter a valid email address");
+        }
+        data.email = next;
+      }
+      if (Object.keys(data).length === 0) {
+        const current = await loadMe(context.prisma, employeeId);
+        return publicEmployee(current);
       }
       const updated = await context.prisma.hr_employee.update({
         where: { id: employeeId },
@@ -402,6 +612,7 @@ export const employeeResolvers = {
       context,
     ) => {
       const me = await loadMe(context.prisma, assertEmployee(context));
+      await assertEmployeeCanRequestLeave(context.prisma, me);
       const lt = String(leaveType ?? "").trim();
       if (!lt) throw new Error("Leave type is required");
       const typeRow = await context.prisma.hr_leave_type.findFirst({
@@ -498,6 +709,14 @@ export const employeeResolvers = {
           }
         },
       });
+      if (
+        updated.status === "approved" ||
+        updated.status === "rejected"
+      ) {
+        await notifyEmployeeLeaveDecision(context.prisma, updated, {
+          createdBy: me.fullName,
+        });
+      }
       return mapLeave(updated);
     },
   },
